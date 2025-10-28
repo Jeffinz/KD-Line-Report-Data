@@ -1,9 +1,8 @@
-// server.js
+// app.js (Entry Point/Server)
 const express = require("express");
 const bodyParser = require("body-parser");
-require("dotenv").config(); // ต้องเพิ่มเพื่อโหลด .env (ถ้ายังไม่ได้เพิ่ม)
+require("dotenv").config();
 
-// Import connectToMongoDB
 const { connectToMongoDB } = require("./config/database.js");
 const webhookRoutes = require("./routes/webhook.route.js");
 
@@ -12,12 +11,14 @@ const port = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
 
-// เริ่มเซิร์ฟเวอร์
+/**
+ * เริ่มต้นการทำงานของ Server
+ * @async
+ */
 const startServer = async () => {
   try {
     // 1. เชื่อมต่อฐานข้อมูลก่อนเริ่ม Server
     await connectToMongoDB();
-    console.log("Database connection established.");
 
     // 2. กำหนดเส้นทาง Webhook
     app.use("/webhook", webhookRoutes);
@@ -27,7 +28,7 @@ const startServer = async () => {
     });
   } catch (err) {
     console.error("Failed to start server:", err);
-    process.exit(1); // ออกจาก process หากเชื่อมต่อ DB ไม่ได้
+    process.exit(1);
   }
 };
 
