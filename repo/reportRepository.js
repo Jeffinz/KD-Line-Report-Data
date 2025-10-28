@@ -1,43 +1,52 @@
-// repo/reportRepository.js
+// repo/reportRepository.js (Refactored to Document Per Period Model)
 const { getDb } = require("../config/database");
 
-const COLLECTION_NAME = "villageReports";
+const MONTHLY_COLLECTION_NAME = "monthlyReports"; // NEW: เปลี่ยน Collection หลัก
+const PENDING_COLLECTION_NAME = "pendingReports"; // คงเดิม: สำหรับ State Management
 
-// Helper function เพื่อเรียกใช้ Collection
-const getCollection = () => getDb().collection(COLLECTION_NAME);
+const getCollection = (name = MONTHLY_COLLECTION_NAME) =>
+  getDb().collection(name);
+
+// --- MONTHLY REPORT LOGIC (NEW) ---
 
 /**
- * ค้นหารายงานทั้งหมดของตำบล
+ * ค้นหารายงานตามตำบลและรอบเดือน
  * @param {string} subdistrict
+ * @param {string} monthYear - รอบเดือนในรูปแบบ 'YYYY-MM'
  * @returns {Promise<Object|null>}
  */
-const findReportBySubdistrict = async (subdistrict) => {
-  const collection = getCollection();
-  return collection.findOne({ subdistrict: subdistrict });
+const findReportByPeriod = async (subdistrict, monthYear) => {
+  const collection = getCollection(MONTHLY_COLLECTION_NAME);
+  // ค้นหาโดยใช้ subdistrict และ monthYear เป็น Key
+  return collection.findOne({ subdistrict: subdistrict, monthYear: monthYear });
 };
 
 /**
- * ล้างข้อมูลหมู่บ้านทั้งหมด (ใช้เมื่อเปลี่ยนเดือน)
- * @param {string} subdistrict
- * @returns {Promise<void>}
- */
-const resetVillages = async (subdistrict) => {
-  const collection = getCollection();
-  await collection.updateOne(
-    { subdistrict: subdistrict },
-    { $set: { villages: [] } }
-  );
-};
-
-/**
- * อัปเดตหรือเพิ่มข้อมูลการส่งรายงานของหมู่บ้าน
+ * อัปเดตหรือเพิ่มข้อมูลการส่งรายงานของหมู่บ้านตามรอบเดือน
  * @param {Object} details - { village: string, subdistrict: string }
  * @param {string} formattedTime - รูปแบบวันเดือนปีที่ส่ง (เช่น 31 ต.ค.68)
+ * @param {Date} dateObject - Date object สำหรับติดตามเวลาที่แน่นอน
+ * @param {string} monthYear - รอบเดือนในรูปแบบ 'YYYY-MM'
  * @returns {Promise<void>}
  */
-const upsertVillageUpdate = async (details, formattedTime) => {
-  const collection = getCollection();
-  const existingReport = await findReportBySubdistrict(details.subdistrict);
+const upsertVillageUpdate = async (
+  details,
+  formattedTime,
+  dateObject,
+  monthYear
+) => {
+  const collection = getCollection(MONTHLY_COLLECTION_NAME);
+  const query = { subdistrict: details.subdistrict, monthYear: monthYear };
+  const existingReport = await findReportByPeriod(
+    details.subdistrict,
+    monthYear
+  );
+
+  const villageData = {
+    village: details.village,
+    lastUpdated: formattedTime,
+    lastUpdatedDate: dateObject, // เก็บ Date Object เพื่อความแม่นยำ
+  };
 
   if (existingReport) {
     const existingVillage = existingReport.villages.find(
@@ -47,54 +56,71 @@ const upsertVillageUpdate = async (details, formattedTime) => {
     if (existingVillage) {
       // อัปเดตเวลาในหมู่บ้านที่มีอยู่แล้ว
       await collection.updateOne(
+        { ...query, "villages.village": details.village },
         {
-          _id: existingReport._id,
-          "villages.village": details.village,
-        },
-        { $set: { "villages.$.lastUpdated": formattedTime } }
+          $set: {
+            "villages.$.lastUpdated": formattedTime,
+            "villages.$.lastUpdatedDate": dateObject,
+          },
+        }
       );
     } else {
       // เพิ่มหมู่บ้านใหม่
       await collection.updateOne(
-        { _id: existingReport._id },
-        {
-          $push: {
-            villages: {
-              village: details.village,
-              lastUpdated: formattedTime,
-            },
-          },
-        }
-      );
-    }
-
-    // จัดเรียงหมู่บ้าน (เพื่อให้ข้อมูลใน DB เรียงลำดับเสมอ)
-    const updatedReport = await findReportBySubdistrict(details.subdistrict);
-    if (updatedReport) {
-      const sortedVillages = updatedReport.villages.sort(
-        (a, b) => parseInt(a.village) - parseInt(b.village)
-      );
-      await collection.updateOne(
-        { _id: existingReport._id },
-        { $set: { villages: sortedVillages } }
+        { ...query },
+        { $push: { villages: villageData } }
       );
     }
   } else {
-    // ถ้าไม่มีข้อมูล ให้สร้างข้อมูลใหม่
+    // ถ้าไม่มีเอกสารในเดือนนี้ ให้สร้างเอกสารใหม่สำหรับรอบเดือนนั้น
     await collection.insertOne({
       subdistrict: details.subdistrict,
-      villages: [
-        {
-          village: details.village,
-          lastUpdated: formattedTime,
-        },
-      ],
+      monthYear: monthYear, // Key หลัก: รอบเดือน
+      villages: [villageData],
     });
   }
 };
 
+// --- PENDING REPORT LOGIC (UPDATED) ---
+
+/**
+ * บันทึกรายงานเข้าสู่สถานะรอการยืนยัน (Pending)
+ * (เพิ่ม dateObject และ monthYear เข้าไปเก็บ)
+ */
+const savePendingReport = async (
+  userId,
+  details,
+  formattedTime,
+  dateObject,
+  monthYear
+) => {
+  const collection = getCollection(PENDING_COLLECTION_NAME);
+  const data = {
+    userId: userId,
+    details: details,
+    formattedTime: formattedTime,
+    dateObject: dateObject, // NEW
+    monthYear: monthYear, // NEW
+    createdAt: new Date(),
+  };
+
+  await collection.updateOne(
+    { userId: userId },
+    { $set: data },
+    { upsert: true }
+  );
+};
+
+// ค้นหาและลบ Pending Reports (Logic คงเดิม)
+const findPendingReport = async (userId) =>
+  getCollection(PENDING_COLLECTION_NAME).findOne({ userId: userId });
+const deletePendingReport = async (userId) =>
+  getCollection(PENDING_COLLECTION_NAME).deleteOne({ userId: userId });
+
 module.exports = {
-  findReportBySubdistrict,
-  resetVillages,
+  findReportByPeriod,
   upsertVillageUpdate,
+  savePendingReport,
+  findPendingReport,
+  deletePendingReport,
 };

@@ -1,7 +1,24 @@
-// services/reportService.js
+// services/reportService.js (Refactored to Document Per Period Model)
 const reportRepository = require("../repo/reportRepository");
+const dayjs = require("dayjs");
+const buddhistEra = require("dayjs/plugin/buddhistEra");
+require("dayjs/locale/th");
+dayjs.extend(buddhistEra);
+dayjs.locale("th");
 
-// ฟังก์ชันสำหรับสร้างข้อความตอบกลับ (ย้ายมาจาก webhook.js)
+// Helper function to get the current period key
+const getCurrentPeriod = () => {
+  const now = dayjs();
+  // Format for DB key: 'YYYY-MM' (e.g., '2025-10')
+  const dbPeriod = now.format("YYYY-MM");
+  // Format for Reply Text: 'ต.ค.68'
+  const replyMonth = now.format("MMM");
+  const replyYear = now.format("BB");
+
+  return { dbPeriod, replyMonth, replyYear, dateObject: now.toDate() };
+};
+
+// ... existing createReplyText ...
 const createReplyText = (report, month, year) => {
   let replyText = `อัพเดทการส่งรายงานทางไลน์\n${month}${year} ต.ควนโดน\n\n`;
   const allVillages = [
@@ -23,7 +40,7 @@ const createReplyText = (report, month, year) => {
     const villageNumber = village.slice(2);
     const existingVillage = villages.find((v) => v.village === villageNumber);
 
-    let statusText = "ยังไม่ส่ง";
+    let statusText = "ส่งแล้ว";
 
     if (existingVillage) {
       statusText = `ส่งแล้ว ${existingVillage.lastUpdated}`;
@@ -35,67 +52,76 @@ const createReplyText = (report, month, year) => {
 };
 
 /**
- * จัดการ Logic คำสั่ง "!รายงานไลน์ต.ควนโดน" รวมถึงการตรวจสอบเดือนและรีเซ็ตข้อมูล
- * @returns {Promise<string>} ข้อความตอบกลับสำหรับ LINE
+ * จัดการ Logic คำสั่ง "!รายงานไลน์ต.ควนโดน" โดยค้นหารายงานตามรอบเดือน
+ * (ลบ Logic การรีเซ็ตที่เปราะบางออกไป)
  */
 const getReportSummary = async () => {
-  // ดึงรายงานปัจจุบันจาก Repository
-  let report = await reportRepository.findReportBySubdistrict("ควนโดน");
+  const { dbPeriod, replyMonth, replyYear } = getCurrentPeriod();
 
-  const date = new Date();
-  const month = date.toLocaleString("th-TH", { month: "short" });
-  const year = (date.getFullYear() + 543).toString().slice(-2);
+  // ดึงรายงานตามตำบลและรอบเดือน (ใช้ Key: subdistrict + dbPeriod)
+  const report = await reportRepository.findReportByPeriod("ควนโดน", dbPeriod);
 
-  const lastUpdatedVillages = report?.villages || [];
-
-  // Logic ตรวจสอบว่าเดือนเปลี่ยนหรือไม่
-  if (lastUpdatedVillages.length > 0) {
-    // Regex เพื่อดึงชื่อเดือนภาษาไทยย่อ (ต.ค., พ.ย. เป็นต้น)
-    const regexMonth = /(\p{Script=Thai}+\.\p{Script=Thai}\.)/u;
-    const reportMonthMatch =
-      lastUpdatedVillages[0]?.lastUpdated.match(regexMonth);
-
-    // ถ้าเดือนที่เก็บในฐานข้อมูลไม่ตรงกับเดือนปัจจุบัน
-    if (reportMonthMatch && reportMonthMatch[1] !== month) {
-      // สั่ง Repository ให้ลบข้อมูลหมู่บ้านทั้งหมด
-      await reportRepository.resetVillages("ควนโดน");
-      // ดึงรายงานที่ถูกรีเซ็ตแล้ว
-      report = await reportRepository.findReportBySubdistrict("ควนโดน");
-    }
-  } else {
-    // ถ้าไม่มีข้อมูลเลย ให้สร้าง report เปล่า
-    report = { villages: [] };
-  }
-
-  // สร้างข้อความตอบกลับ
-  return createReplyText(report, month, year);
+  return createReplyText(report, replyMonth, replyYear);
 };
 
 /**
- * จัดการ Logic การอัปเดตข้อมูลการส่งรายงานของหมู่บ้าน
- * @param {Object} details - { village: string, subdistrict: string, date: string } (จาก extractDetails)
- * @returns {Promise<string>} ข้อความแจ้งเตือนที่จะ Push ไปยังกลุ่มอื่น
+ * บันทึกข้อมูลรายงานลงในสถานะรอการยืนยัน (Pending State)
  */
-const updateVillageReport = async (details) => {
+const savePendingReport = async (details, userId) => {
+  // ดึงรอบเดือนและ Date Object ของเวลาปัจจุบัน
+  const { dbPeriod, dateObject } = getCurrentPeriod();
+
   // 1. เตรียม formattedTime (Business Logic ในการจัดรูปแบบเวลา)
-  const date = new Date();
-  const options = {
-    timeZone: "Asia/Bangkok",
-    month: "short",
-    year: "2-digit",
-  };
-  const formattedDate = date.toLocaleString("th-TH", options);
-  const [day, month, year] = formattedDate.split(" "); // ดึง เดือน และ ปี
-  const formattedTime = `${details.date} ${month}${year}`; // ใช้เลขวันที่จากข้อความที่ผู้ใช้ส่ง
+  const now = dayjs();
 
-  // 2. สั่ง Repository ให้อัปเดต/เพิ่มข้อมูล
-  await reportRepository.upsertVillageUpdate(details, formattedTime);
+  // *** NEW LOGIC: ใช้เลขวันที่ของวันปัจจุบัน (DD) ***
+  const currentDay = now.format("DD");
 
-  // 3. เตรียมข้อความแจ้งเตือน
-  return `***มีผู้ส่งรายงานไลน์\nหมู่ที่: ${details.village}\nตำบล: ${details.subdistrict}\nวันที่ส่ง: ${formattedTime}`;
+  const thaiMonth = now.format("MMM");
+  const thaiYear = now.format("BB");
+
+  // สร้าง formattedTime โดยใช้เลขวันที่ปัจจุบัน
+  const formattedTime = `${currentDay} ${thaiMonth}${thaiYear}`;
+
+  // 2. สั่ง Repository ให้บันทึกข้อมูลชั่วคราว
+  await reportRepository.savePendingReport(
+    userId,
+    details,
+    formattedTime,
+    dateObject,
+    dbPeriod
+  );
+};
+
+/**
+ * ประมวลผลคำสั่ง "ตรวจงาน" เพื่อยืนยันและบันทึกรายงานฉบับสมบูรณ์
+ */
+const processConfirmation = async (userId) => {
+  const pendingReport = await reportRepository.findPendingReport(userId);
+
+  if (!pendingReport) {
+    return null;
+  }
+
+  const { details, formattedTime, dateObject, monthYear } = pendingReport;
+
+  // 2. ทำการบันทึกรายงานฉบับสมบูรณ์ (ใช้ Logic ใหม่ของ upsertVillageUpdate)
+  await reportRepository.upsertVillageUpdate(
+    details,
+    formattedTime,
+    dateObject,
+    monthYear
+  );
+
+  // 3. ลบรายงานที่รอการยืนยัน
+  await reportRepository.deletePendingReport(userId);
+
+  // 4. เตรียมข้อความแจ้งเตือนสำหรับ Push Message
+  return `***มีผู้ส่งรายงานไลน์ (ยืนยันแล้ว)\nหมู่ที่: ${details.village}\nตำบล: ${details.subdistrict}\nวันที่ส่ง: ${formattedTime}`;
 };
 
 module.exports = {
   getReportSummary,
-  updateVillageReport,
+  savePendingReport,
+  processConfirmation,
 };
