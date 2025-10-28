@@ -1,27 +1,7 @@
-// utils/helpers.js
+// utils/lineUtils.js (ปรับปรุง)
+
 const extractDetails = (message) => {
-  // ตรวจสอบข้อความที่มีเครื่องหมายคำพูด (ทั้งคู่)
-  const quoteRegex = /["“”](.*?)["“”]/;
-
-  // ถ้าไม่มีข้อความในเครื่องหมายคำพูด หรือข้อความภายในเครื่องหมายคำพูดว่าง
-  const quoteMatch = message.match(quoteRegex);
-  if (!quoteMatch || !quoteMatch[1].trim()) {
-    return { village: null, subdistrict: null, isValid: false }; // คืนค่าความถูกต้องเป็น false
-  }
-
-  // ใช้ regex สำหรับค้นหาวันที่ในรูปแบบ "12" (เลขวันที่เท่านั้น)
-  const dateRegex = /\b(\d{1,2})\b/; // ค้นหาตัวเลขที่เป็นวันที่ (1 หรือ 2 หลัก)
-
-  // ค้นหาวันที่จากข้อความที่ถูกเลือก
-  const dateMatch = message.match(dateRegex);
-
-  if (!dateMatch) {
-    return { village: null, subdistrict: null, date: null, isValid: false }; // ถ้าไม่มีวันที่จะถือว่าไม่ถูกต้อง
-  }
-
-  // ดึงเลขวันที่จากข้อความที่พบ
-  const date = dateMatch[1]; // เอาแค่วันที่ (เลขวัน)
-
+  // 1. ค้นหาหมู่บ้านและตำบล
   const villageRegex = /(?:ม\.\s*(\d+)|หมู่\s*ที่\s*(\d+)|หมู่\s*(\d+))/;
   const subdistrictRegex =
     /(ต\.\s*(ควนโดน|ควนสตอ|ย่านซื่อ|วังประจัน)|ตำบล\s*(ควนโดน|ควนสตอ|ย่านซื่อ|วังประจัน))/;
@@ -29,15 +9,24 @@ const extractDetails = (message) => {
   const villageMatch = message.match(villageRegex);
   const subdistrictMatch = message.match(subdistrictRegex);
 
+  // ดึงค่าที่พบ
+  const village = villageMatch
+    ? villageMatch[1] || villageMatch[2] || villageMatch[3]
+    : null;
+  const subdistrict = subdistrictMatch
+    ? subdistrictMatch[0].replace(/ต\.\s*|ตำบล\s*|ต\s*\.\s*/, "").trim()
+    : null;
+
+  // *** Logic การดึงและตรวจสอบวันที่ถูกลบออกแล้ว ***
+
+  // ตรวจสอบความถูกต้อง: ต้องมี หมู่บ้าน และ ตำบล ครบถ้วน
+  const isValid = !!village && !!subdistrict;
+
   return {
-    village: villageMatch
-      ? villageMatch[1] || villageMatch[2] || villageMatch[3]
-      : null,
-    subdistrict: subdistrictMatch
-      ? subdistrictMatch[0].replace(/ต\.\s*|ตำบล\s*|ต\s*\.\s*/, "").trim()
-      : null,
-    date: date,
-    isValid: true, // ข้อความนี้ถูกต้อง
+    village: village,
+    subdistrict: subdistrict,
+    // ไม่มีการคืนค่า 'date' อีกต่อไป
+    isValid: isValid,
   };
 };
 
