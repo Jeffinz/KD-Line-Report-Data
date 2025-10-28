@@ -20,11 +20,11 @@ dayjs.locale("th");
  */
 const getCurrentPeriod = () => {
   const now = dayjs();
-  
-  const dbPeriod = now.format("YYYY-MM"); 
-  const replyMonth = now.format("MMM"); 
-  const replyYear = now.format("BB"); 
-  
+
+  const dbPeriod = now.format("YYYY-MM");
+  const replyMonth = now.format("MMM");
+  const replyYear = now.format("BB");
+
   return { dbPeriod, replyMonth, replyYear, dateObject: now.toDate() };
 };
 
@@ -38,8 +38,16 @@ const getCurrentPeriod = () => {
 const createReplyText = (report, month, year) => {
   let replyText = `อัพเดทการส่งรายงานทางไลน์\n${month}${year} ต.ควนโดน\n\n`;
   const allVillages = [
-    "ม.1", "ม.2", "ม.3", "ม.4", "ม.5", 
-    "ม.6", "ม.7", "ม.8", "ม.9", "ม.10",
+    "ม.1",
+    "ม.2",
+    "ม.3",
+    "ม.4",
+    "ม.5",
+    "ม.6",
+    "ม.7",
+    "ม.8",
+    "ม.9",
+    "ม.10",
   ];
 
   const villages = Array.isArray(report?.villages) ? report.villages : [];
@@ -59,7 +67,6 @@ const createReplyText = (report, month, year) => {
   });
   return replyText;
 };
-
 
 /**
  * จัดการ Logic คำสั่ง "!รายงานไลน์ต.ควนโดน" โดยค้นหารายงานตามรอบเดือน
@@ -83,19 +90,25 @@ const getReportSummary = async () => {
  * @returns {Promise<void>}
  */
 const savePendingReport = async (details, userId) => {
-    // ดึงรอบเดือนและ Date Object ของเวลาปัจจุบัน
-    const { dbPeriod, dateObject } = getCurrentPeriod();
+  // ดึงรอบเดือนและ Date Object ของเวลาปัจจุบัน
+  const { dbPeriod, dateObject } = getCurrentPeriod();
 
-    // 1. เตรียม formattedTime โดยใช้เลขวันที่ของวันปัจจุบัน
-    const now = dayjs();
-    const currentDay = now.format("DD"); 
-    const thaiMonth = now.format("MMM"); 
-    const thaiYear = now.format("BB"); 
-    const formattedTime = `${currentDay} ${thaiMonth}${thaiYear}`; 
+  // 1. เตรียม formattedTime โดยใช้เลขวันที่ของวันปัจจุบัน
+  const now = dayjs();
+  const currentDay = now.format("DD");
+  const thaiMonth = now.format("MMM");
+  const thaiYear = now.format("BB");
+  const formattedTime = `${currentDay} ${thaiMonth}${thaiYear}`;
 
-    // 2. สั่ง Repository ให้บันทึกข้อมูลชั่วคราว
-    await reportRepository.savePendingReport(userId, details, formattedTime, dateObject, dbPeriod);
-}
+  // 2. สั่ง Repository ให้บันทึกข้อมูลชั่วคราว
+  await reportRepository.savePendingReport(
+    userId,
+    details,
+    formattedTime,
+    dateObject,
+    dbPeriod
+  );
+};
 
 /**
  * ประมวลผลคำสั่ง "ตรวจงาน" เพื่อยืนยันและบันทึกรายงานฉบับสมบูรณ์
@@ -104,29 +117,28 @@ const savePendingReport = async (details, userId) => {
  * @returns {Promise<string|null>} ข้อความแจ้งเตือนสำหรับ Push Message หรือ null ถ้าไม่มีรายงานรอ
  */
 const processConfirmation = async (userId) => {
-    const pendingReport = await reportRepository.findPendingReport(userId);
+  const pendingReport = await reportRepository.findPendingReport(userId);
 
-    if (!pendingReport) {
-        return null;
-    }
+  if (!pendingReport) {
+    return null;
+  }
 
-    const { details, formattedTime, dateObject, monthYear } = pendingReport;
-    
-    // 1. ทำการบันทึกรายงานฉบับสมบูรณ์ลงใน Collection หลัก
-    await reportRepository.upsertVillageUpdate(
-        details,
-        formattedTime,
-        dateObject,
-        monthYear
-    );
-    
-    // 2. ลบรายงานที่รอการยืนยัน
-    await reportRepository.deletePendingReport(userId);
-    
-    // 3. เตรียมข้อความแจ้งเตือนสำหรับ Push Message
-    return `***มีผู้ส่งรายงานไลน์ (ยืนยันแล้ว)\nหมู่ที่: ${details.village}\nตำบล: ${details.subdistrict}\nวันที่ส่ง: ${formattedTime}`;
-}
+  const { details, formattedTime, dateObject, monthYear } = pendingReport;
 
+  // 1. ทำการบันทึกรายงานฉบับสมบูรณ์ลงใน Collection หลัก
+  await reportRepository.upsertVillageUpdate(
+    details,
+    formattedTime,
+    dateObject,
+    monthYear
+  );
+
+  // 2. ลบรายงานที่รอการยืนยัน
+  await reportRepository.deletePendingReport(userId);
+
+  // 3. เตรียมข้อความแจ้งเตือนสำหรับ Push Message
+  return `***มีผู้ส่งรายงานไลน์ (ยืนยันแล้ว)\nหมู่ที่: ${details.village}\nตำบล: ${details.subdistrict}\nวันที่ส่ง: ${formattedTime}`;
+};
 
 module.exports = {
   getReportSummary,
