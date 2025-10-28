@@ -57,7 +57,7 @@ const createReplyText = (report, month, year) => {
     const villageNumber = village.slice(2);
     const existingVillage = villages.find((v) => v.village === villageNumber);
 
-    let statusText = "ยังไม่ส่ง";
+    let statusText = "ส่งแล้ว";
 
     if (existingVillage) {
       statusText = `ส่งแล้ว ${existingVillage.lastUpdated}`;
