@@ -1,0 +1,28 @@
+{
+  "name": "kd-line-report-data",
+  "version": "1.0.0",
+  "description": "Line Bot for Khuandon Village Report Data",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "line",
+    "bot",
+    "mongodb"
+  ],
+  "author": "JF",
+  "license": "ISC",
+  "dependencies": {
+    "@line/bot-sdk": "^7.5.2",
+    "body-parser": "^1.20.2",
+    "dayjs": "^1.11.11",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mongodb": "^6.8.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
